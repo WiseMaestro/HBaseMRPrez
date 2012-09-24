@@ -1,0 +1,107 @@
+\documentclass[xcolor=x11names]{beamer}
+\usepackage{graphicx}
+\usepackage{textpos}
+\definecolor{light-gray}{gray}{0.6}
+
+\usetheme{Frankfurt}
+
+%\setbeamercolor{block title}{fg=white,bg=orange}
+\setbeamercolor{frametitle}{fg=white, bg=orange}
+\setbeamercolor{title}{fg=white, bg=orange}
+\setbeamercolor{item projected}{fg=white,bg=orange}
+\setbeamercolor{section in toc}{fg=black}
+\setbeamercolor{bibliography entry title}{fg=black}
+\setbeamercolor{bibliography entry author}{fg=black}
+\setbeamertemplate{footline}[text line]{\parbox{\linewidth}{\vspace*{-8pt}
+\thepage \hspace{0.35\textwidth} \textsc{\textcolor{light-gray}{Confidential \&
+Proprietary}}}}
+\setbeamertemplate{navigation symbols}{}
+
+
+\logo{\includegraphics[height=1cm]{explorys_logo}}
+
+
+
+\begin{document}
+
+\title{Fast MapReduce over Apache HBase}
+\subtitle{Technologies and Techniques Developed by Explorys Inc.}
+\author{
+	\large
+	\flushleft
+	{\bf Keith Wyss, BS} \\
+		{\em Software Engineer} \\[0.25cm]
+} 
+\date{September, 24 2012} 
+
+\frame{\titlepage}
+
+\frame{\frametitle{Agenda} \tableofcontents}
+
+\section{Introduction}
+\frame[t]{\frametitle{Why you should use HBase}
+	\begin{itemize}
+  		\item HBase is a columnar storage DataBase designed to facilate web scale write
+                  throughput by accessing on disk storage structures as a batch process and performing a scan and
+                  merge of columnar results from disparate ``Store Files''.
+  		\item HBase harnesses the fault tolerance of a Hadoop cluster and provides a tool to perform 
+                  low latency reads upon that data by presenting an interface that unifies in memory caching, 
+                  sorted key-values on disk and administration for managing the size of the files and garbage collecting
+                  data based on TTL and delete operations.
+	\end{itemize}
+}
+\frame[t]{\frametitle{More reasons to use HBase}
+       \begin{itemize}
+  		\item HBase provides a database that may be used a source for data processing via MapReduce. 
+                  HBase makes it easy to perform batch processing at scale upon data that processes writes in real time.
+  		\item HBase interoperates with the rest of the Apach distributed stack. It utilizes zookeeper efficiently to
+                  spread the load of database operations evenly across a cluster if you structure the data properly.
+                \item HBase allows you to control your own destiny. Never have I seen interfaces that include so many byte arrays.
+                  HBase will not interfere with your custom serialization and does not require you to communicate with it via
+                  Json or web service calls. A formal schema is not required, but this does not mean structuring your data isn't important.
+       \end{itemize}
+}
+\frame[t]{\frametitle{Why MapReduce Over HBase Sucks}
+      \begin{itemize}
+      \item Running MapReduce over an HBase table using the TableInputFormat is slow. It is many times slower than processing the same data
+        sourced from raw HDFS files.
+      \item Running MapReduce over an HBase table will destroy your read performance. The scanners that the MapReduce job employs flood the block
+        cache with data that does not reflect your random read access patterns. Also, be prepared to deal with thrashing as your HBase table is probably
+        quite large and none of it will be read twice, so none of this cache management is beneficial.
+      \end{itemize}
+}
+\frame[t]{\frametitle{Running the Diagnostics}
+      \begin{itemize}
+        \item At Explorys we realized that the problems with running MapReduce over HBase stem from a common root.
+        \item The batch processing data access pattern is conflated with a typical client read scenario. TableInputFormat is
+          not some glorious miracle of backend data structures. It is actually very similar to how you might write it if it didn't exist.
+        \item Each map task uses the client API to scan over the Results in the HBase table. The primary advantage over typical use is
+          merely concurrent scans allowing parallelism. The overhead of the client server architecture is offset by a large amount of
+          buffering to reduce the impact of Remote Procedure calls, but it is far from the mark of a direct file-system access even if the data is
+          local to the MapReduce task.
+      \end{itemize}
+}
+\frame[t]{\frametitle{Architecture of an HBase Scan}
+  TODO
+}
+\section{Improvements}
+\frame[t]{\frametitle{Direct Access}
+  \begin{itemize}
+    \item We wanted to design an InputFormat that allowed direct, read-only subscription to the StoreFiles for an HBase Table.
+    \item Through some conversation with the HBase committers, especially St. Ack, we were told
+      \begin{enumerate}
+        \item We were crazy for thinking of this.
+        \item More direct data access is something that's been requested before.
+        \item We might have a viable approach by spinning up our own Region objects and using those to gain access to the underlying HFiles.
+      \end{enumerate}
+  \end{itemize}
+}
+
+\frame[t,allowframebreaks]{\frametitle{References}
+\bibliographystyle{amsalpha}
+\begin{thebibliography}{1}
+	{\small
+	}
+\end{thebibliography}
+}
+\end{document}
