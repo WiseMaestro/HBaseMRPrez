@@ -18,7 +18,7 @@ Proprietary}}}}
 \setbeamertemplate{navigation symbols}{}
 
 
-\logo{\includegraphics[height=1cm]{explorys_logo}}
+\logo{\includegraphics[height=0.8cm]{explorys_logo}}
 
 
 
@@ -54,7 +54,7 @@ Proprietary}}}}
        \begin{itemize}
   		\item HBase provides a database that may be used a source for data processing via MapReduce. 
                   HBase makes it easy to perform batch processing at scale upon data that processes writes in real time.
-  		\item HBase interoperates with the rest of the Apach distributed stack. It utilizes zookeeper efficiently to
+  		\item HBase interoperates with the rest of the Apache distributed stack. It utilizes zookeeper efficiently to
                   spread the load of database operations evenly across a cluster if you structure the data properly.
                 \item HBase allows you to control your own destiny. Never have I seen interfaces that include so many byte arrays.
                   HBase will not interfere with your custom serialization and does not require you to communicate with it via
@@ -82,9 +82,10 @@ Proprietary}}}}
       \end{itemize}
 }
 \frame[t]{\frametitle{Architecture of an HBase Scan}
-  TODO
+  TODO Find/Make picture of this.
 }
-\section{Improvements}
+
+\section{Design}
 \frame[t]{\frametitle{Direct Access}
   \begin{itemize}
     \item We wanted to design an InputFormat that allowed direct, read-only subscription to the StoreFiles for an HBase Table.
@@ -94,13 +95,140 @@ Proprietary}}}}
         \item More direct data access is something that's been requested before.
         \item We might have a viable approach by spinning up our own Region objects and using those to gain access to the underlying HFiles.
       \end{enumerate}
+    \item There are a few contraindications to the approach that we will discuss later.
   \end{itemize}
 }
 
+\frame[t]{\frametitle{How to make this fast}
+  \begin{itemize}
+    \item Each storeFile is a column-family specific sorted list of KeyValues. The storefiles themselves are ordered by the timestamps.
+    \item The approach is to treat each HFile as a heap of KeyValues. We then built an outerheap of HFiles where the comparator is
+      the KeyValue.COMPARATOR applied to the top of the heap.
+    \item Then we merge the results into a Result object as they are read in to provide the familiar pair of rowkey and Result object.
+    \item Due to reverse timestamp sorting, Delete KeyValues (tombstone markers) will be encountered before the older records that they
+      nullify.
+  \end{itemize}
+}
+
+\frame[t]{\frametitle{Anatomy of an HFile \cite{SCHUBERT09,HBASEIO11}}
+  \begin{columns}[t]
+  \begin{column}{5cm}
+  \begin{tabular}{|l|l|}
+    \hline
+    \multicolumn{2}{|c|}{A Typical HFile} \\
+    \hline
+   1 & Data Block 0 \\
+    \hline
+   2 &  Data Block 1 \\
+    \hline
+   3 & Meta Block \\
+    \hline
+   4 & File Info \\
+    \hline
+   5 & Data Block Index \\
+    \hline
+   6 & Meta Block Index \\
+    \hline
+   7 & Trailer \\
+    \hline
+  \end{tabular}
+  \end{column}
+  \begin{column}{5cm}
+  \begin{tabular}{|l|l|}
+    \hline
+    \multicolumn{2}{|c|}{A Typical DataBlock} \\
+    \hline
+   1 & Data Block Magic \\
+    \hline
+   2 & Key Length \\
+    \hline
+   3 & Value Length \\
+    \hline
+   4 & Key \\
+    \hline
+   5 & Value \\
+    \hline
+   6 & Key Length \\
+    \hline
+   7 & Value Length \\
+    \hline
+   8 & Key \\
+    \hline
+   9 & Value \\
+    \hline
+   10 & ... \\
+    \hline
+   \end{tabular}
+  \end{column}
+  \end{columns}
+}
+
+\section{Running MapReduce directly over HFiles}
+\frame[t]{\frametitle{Implementation}
+  \begin{itemize}
+    \item Here at Explorys, we implemented this proposed InputFormat to be used as a plug and play replacement for TableInputFormat.
+    \item Almost...
+    \item The code is hosted on github at \href{https://github.com/ExplorysMedical/Apothecary}{https://github.com/ExplorysMedical/Apothecary}
+    \item Problems? Compaction and Region Splitting. Memstore access. Why?
+  \end{itemize}
+}
+
+\frame[t]{\frametitle{Dealing with HBase Data Administration}
+
+ \begin{enumerate}
+    \item Turn off data source or funnel into temporary storage.
+    \item Trigger flush and compaction.
+    \item Wait for flush and compaction to finish. All the data is on disk.
+    \item Create a log of the existing storefiles.
+    \item Run the MapReduce Job
+    \item Check the log to see that the state of the table didn't change (region splits or compaction).
+    \item Possible do-over.
+  \end{enumerate}
+  \vspace{0.2cm}
+ \begin{itemize}
+  \item That's a lot. What can we skip?
+  \item Hard links?
+  \end{itemize}
+}
+\frame[t]{\frametitle{Performance}
+   \begin{tabular}{|l|l|l|}
+     \hline
+     Comparing & TableInputFormat & HFiles \\
+     \hline
+     Copying a Table & TODO & TODO \\
+     \hline
+     Explorys Indexing Job & 1:50 & 0:30 \\
+     \hline
+   \end{tabular}
+   \begin{itemize}
+     \item Better over large tables where cache doesn't have an impact.
+     \item Worth the operation overhead in some circumstances.
+     \item Major motivation for hard links and/or table snapshotting.
+   \end{itemize} 
+ }
+\frame[t]{\frametitle{Problems}
+  \vspace{0.5cm}
+  \begin{itemize}
+    \item Serious memory usage. HFile block indexes can be quite large, although needn't be loaded in full since HBase 0.92 \cite{HFILEV2}
+    \item Operational constraints unwieldy. HBase Administration is asynchronous, doesn't return monitoring object.
+    \item Tenuous relationship with non-exposed API. No guarantees that upgrades won't break it.
+    \item Aside from compaction rearranging files, Memstore is not included. 
+      We could possibly read WAL and construct our own memstore if compaction problem is solved..
+  \end{itemize}
+}
 \frame[t,allowframebreaks]{\frametitle{References}
 \bibliographystyle{amsalpha}
 \begin{thebibliography}{1}
 	{\small
+          \bibitem{SCHUBERT09}
+            Schubert Zhang (2009). HFile: A Block-Indexed File Format for Store Sorted Key-Value Pairs
+            \href{http://www.slideshare.net/schubertzhang/hfile-a-blockindexed-file-format-to-store-sorted-keyvalue-pairs}{http://www.slideshare.net/schubertzhang/hfile-a-blockindexed-file-format-to-store-sorted-keyvalue-pairs}
+          \bibitem{HBASEIO11}
+            Matteo Bertozzi (2011). HBase I/O: HFile
+            \href{http://th30z.blogspot.com/2011/02/hbase-io-hfile.html?spref=tw}{http://th30z.blogspot.com/2011/02/hbase-io-hfile.html?spref=tw}
+          \bibitem{HFILEV2}
+            Apache Software Foundation (2012). HBase Book: Appendix E. HFile format version 2
+            \href{http://hbase.apache.org/book/hfilev2.html}{http://hbase.apache.org/book/hfilev2.html}
 	}
 \end{thebibliography}
 }
