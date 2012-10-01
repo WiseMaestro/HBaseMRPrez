@@ -196,7 +196,7 @@ Proprietary}}}}
      \hline
       & TableInputFormat & HFiles \\
      \hline
-     Copying a Table & TODO & TODO \\
+     Copying a Table & 5:06 & 0:26 \\
      \hline
      Explorys Indexing Job & 1:50 & 0:30 \\
      \hline
@@ -207,6 +207,12 @@ Proprietary}}}}
      \item Worth the operation overhead in some circumstances.
      \item Major motivation for hard links and/or table snapshotting.
    \end{itemize} 
+   {\tiny
+   \begin{itemize}
+     \item Indexing Job run with 800 input splits ~300 mappers.
+     \item Copy Job run with 800 input splits, 95 concurrent Mappers.
+   \end{itemize} 
+   }
  }
 \frame[t]{\frametitle{Problems}
   \vspace{0.5cm}
